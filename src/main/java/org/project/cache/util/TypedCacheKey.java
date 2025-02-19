@@ -1,18 +1,18 @@
 package org.project.cache.util;
 
-import org.project.cache.model.CacheKey;
 import org.project.cache.model.CacheType;
+import org.project.cache.model.EntityMetadata;
 
+import java.util.List;
 import java.util.Objects;
 
-public class TypedCacheKey<T> extends CacheKey {
+public class TypedCacheKey<T>  {
 
     private final CacheType type;
     private final String key;
     private final Class<T> valueType;
 
     public TypedCacheKey(CacheType type, String key, Class<T> valueType) {
-        super(type, key);
         this.type = type;
         this.key = key;
         this.valueType = valueType;
@@ -30,6 +30,31 @@ public class TypedCacheKey<T> extends CacheKey {
     @Override
     public int hashCode() {
         return Objects.hash(type, key, valueType);
+    }
+
+    public static <T> TypedCacheKey<T> createEntityKey(Class<T> entityClass, Object id) {
+        return new TypedCacheKey<>(
+                CacheType.ENTITY,
+                entityClass.getName() + ":" + id,
+                entityClass
+        );
+    }
+
+    public static TypedCacheKey<EntityMetadata> createMetadataKey(Class<?> entityClass) {
+        return new TypedCacheKey<>(
+                CacheType.METADATA,
+                entityClass.getName(),
+                EntityMetadata.class
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> TypedCacheKey<List<T>> createQueryKey(String query, Class<?> entityClass) {
+        return new TypedCacheKey<>(
+                CacheType.QUERY,
+                entityClass.getName() + ":" + query,
+                (Class<List<T>>) (Class<?>) List.class
+        );
     }
 
 }

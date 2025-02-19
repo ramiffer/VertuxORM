@@ -2,22 +2,18 @@ package org.project.cache.util;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 public class SmartCache<K, V> {
 
-    //Cache de primer nivel (memoria)
     private final Map<K, CacheEntry<V>> firstLevelCache;
-
-    //Cache de segundo nivel (puede ser extendido a disco/redis)
     private final Map<K, CacheEntry<V>> secondLevelCache;
-
     private final Duration ttl;
-
-
 
     private static class CacheEntry<V> {
 
@@ -32,7 +28,7 @@ public class SmartCache<K, V> {
         }
 
         public boolean isExpired() {
-            return !Instant.now().isAfter(expirationTime);
+            return Instant.now().isAfter(expirationTime);
         }
 
         public void incrementHitCount() {
@@ -59,28 +55,34 @@ public class SmartCache<K, V> {
 
     }
 
+    public Set<K> getKeys() {
+        Set<K> allKeys = new HashSet<>();
+        allKeys.addAll(firstLevelCache.keySet());
+        allKeys.addAll(secondLevelCache.keySet());
+        return allKeys;
+    }
+
     public V get(K key, Function<K, V> loader) {
-        //Intentar obtener del primer nivel
         CacheEntry<V> entry = firstLevelCache.get(key);
 
-        if (entry != null && entry.isExpired()) {
-            entry.incrementHitCount();
-            return entry.value;
+        if (entry != null) {
+            if (!entry.isExpired()) {
+                entry.incrementHitCount();
+                return entry.value;
+            } else firstLevelCache.remove(key);
         }
-
-        //Intentar obtener del segundo nivel
 
         entry = secondLevelCache.get(key);
 
-        if (entry != null && entry.isExpired()) {
-            //Promover al primer nivel si es frecuentemente accedido
-
-            if (entry.hitCount > 5) {
-                firstLevelCache.put(key, entry);
-                secondLevelCache.remove(key);
-            }
-            entry.incrementHitCount();
-            return entry.value;
+        if (entry != null) {
+            if (!entry.isExpired()) {
+                if (entry.hitCount > 5) {
+                    firstLevelCache.put(key, entry);
+                    secondLevelCache.remove(key);
+                }
+                entry.incrementHitCount();
+                return entry.value;
+            } else secondLevelCache.remove(key);
         }
 
         //Cargar valor si no esta en ningun nivel
@@ -91,19 +93,37 @@ public class SmartCache<K, V> {
         return value;
     }
 
-    //Metodo para invalidar cache especifico
+    public void setTTL(K key, Duration newTtl) {
+        CacheEntry<V> entry = firstLevelCache.get(key);
+        if (entry != null) {
+            V value = entry.value;
+            firstLevelCache.put(key, new CacheEntry<>(value, newTtl));
+            return;
+        }
+
+        entry = secondLevelCache.get(key);
+        if (entry != null) {
+            V value = entry.value;
+            secondLevelCache.put(key, new CacheEntry<>(value, newTtl));
+        }
+    }
+
+    public void cleanExpiredEntries() {
+        firstLevelCache.entrySet().removeIf(e -> e.getValue().isExpired());
+        secondLevelCache.entrySet().removeIf(e -> e.getValue().isExpired());
+    }
+
+
     public void invalidate(K key) {
         firstLevelCache.remove(key);
         secondLevelCache.remove(key);
     }
 
-    //Metodo para invalidar todo_ el cache
     public void invalidateAll() {
         firstLevelCache.clear();
         secondLevelCache.clear();
     }
 
-    //Estadisticas del cache
     public CacheStats getStats() {
         return new CacheStats(
                 firstLevelCache.size(),
